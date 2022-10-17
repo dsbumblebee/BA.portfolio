@@ -1,0 +1,829 @@
+---
+title: "text mining"
+header-includes:
+- \usepackage[hangul]{kotex}
+- \setmainhangulfont{나눔고딕}
+- \setmainfont{Microsoft Sans Serif}
+
+output:
+  pdf_document: 
+    keep_tex: yes
+    latex_engine: xelatex
+  html_document:
+    df_print: paged
+---
+
+# 0. Introduction
+
+ I am very interested in image detection these days. I would like to text mining an image detection paper using the text mining technique I learned during the semester.
+ 
+Image detection technology continues to develop, and there are numerous related papers. Many paper are written in English, and there are many difficulties for me who are not familiar with English. So, if I quickly grasp the main idea through text mining techniques before reading the full text, it will be of great help in my study. 
+
+Papers I chose are as follows.
+SSD: Single Shot MultiBox Detector
+MobileNets: Efficient Convolutional Neural Networks for Mobile Vision Applications
+Focal Loss for Dense Object Detection
+
+
+## Contents 
+  1. Sentiment Analysis  
+    1-1. Import data  
+    1-2. Make tidy text data (unnest tokens & antijoin)  
+    1-3. inner join sentiment lexicon & visualize sentiment flow  
+      1-3-1. SSD paper
+      1-3-2. Mobilenet paper
+      1-3-3. Retinanet paper
+    1-4. Barplot of Positive & Negative word  
+    1-5. Word Cloud
+    
+  2. Tf-Idf Analysis  
+    2-1. tf-idf bind  
+    2-2. visualize top 10 word  
+    
+  3. N-gram Analysis  
+    3-1. Make bigram
+    3-2. Visualize bigram network  
+    
+  4. Topic Modeling  
+    4-1. k=3, LDA modeling   
+    4-2. Visualize top 10 word
+    4-3. LDA tunning findtopicsnumber
+    4-4. Visualize tuning result topic word
+    
+  5. Conclusion
+    
+    
+# 1. Sentiment Analysis
+
+## 1-1. Import Data
+
+The data set was created by storing the papers easily accessible on the Internet as csv files and then combining them using rbind functions.
+
+```{r}
+library(stringr)
+setwd("~/Documents/Rstudy/TM")
+ssd_paper <- read.csv('ssdpaper.csv', header = TRUE , stringsAsFactors = FALSE)
+mobilenet_paper <- read.csv('mobilenetpaper.csv', header = TRUE , stringsAsFactors = FALSE)
+retinanet_paper <- read.csv('retinanetpaper.csv', header = TRUE , stringsAsFactors = FALSE)
+raw_paper <- rbind(ssd_paper, mobilenet_paper, retinanet_paper)
+raw_paper
+```
+It's not a specific program, it's just a scratched dataset, so it's pretty messy.
+
+You can see that the dataset consists of title and text. Titles are the main topics of each paper,'ssd','mobilenet', and 'retinanet'.
+
+
+## 1-2. Make tidy text data
+
+```{r}
+library(tibble)
+library(dplyr)
+
+paper <- as_tibble(raw_paper) %>%
+  mutate(line = row_number())
+
+paper
+
+library(tidytext)
+tidy_paper <- paper %>%
+  unnest_tokens(word, text)
+tidy_paper
+
+library(stopwords)
+stopword <- as_tibble(stopwords::stopwords("en"))
+stopword <- rename(stopword, word=value)
+tidy_paper <- anti_join(tidy_paper, stopword, by = 'word')
+
+stopword
+tidy_paper
+```
+
+The dataset was separated by token using the unnest_tokens function. You can see the text listed by word. 
+
+Then, stopword and anti_join functions were used to remove stopwords. It can be seen from 16,131 words reduced to 10385 words.
+
+
+```{r}
+tidy_paper %>%
+  count(word, sort = TRUE)
+```
+
+I checked the number of words through the count function.
+
+The most common words in the three papers are loss, training, feature, boxes, object, network, and stage.
+Stop terms such as 1,2,3 are still visible.
+
+
+## 1-3. inner join sentiment lexicon & visualize sentiment flow  
+
+### 1-3-1. SSD paper 
+
+```{r}
+library(tidyr)
+get_sentiments("bing")
+
+ssdpaper_sentiment <- tidy_paper %>%
+  filter(title == "ssd") %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(title, index = line %/% 2, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+ssdpaper_sentiment
+```
+
+
+Because the dataset is not organized, it may not be suitable for index expression, but I think there will be no big problem in viewing the flow.
+If I had obtained an orderly dataset, it would have been possible to clarify the index.
+
+I can see the positive and negative scores for each index.
+
+
+```{r}
+library(ggplot2)
+ggplot(ssdpaper_sentiment, aes(index, sentiment, fill = title)) +
+geom_bar(stat = "identity", show.legend = FALSE)
+```
+
+The difference between positive and negative by index was expressed as a bar plot. It can be seen that the affirmation is weak up to the third point of paper, and it can be seen that more positive words appear in the second half. 
+
+I think the paper will initially express the problem to be solved in introduction. Therefore, it is expected that more negative expressions will appear than positive expressions, and if the experiment is successful, many positive expressions are expected to appear in the second half.
+
+
+### 1-3-2. Mobilenet
+
+```{r}
+library(tidyr)
+get_sentiments("bing")
+
+mobilenetpaper_sentiment <- tidy_paper %>%
+  filter(title == "mobilenet") %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(title, index = line %/% 2, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+mobilenetpaper_sentiment
+```
+
+Mobilenet paper seem a bit short to show the flow.
+
+
+```{r}
+library(ggplot2)
+ggplot(mobilenetpaper_sentiment, aes(index, sentiment, fill = title)) +
+geom_bar(stat = "identity", show.legend = FALSE)
+```
+
+The appearance of many positive words in the second half is similar to the previous SSD paper.
+
+
+```{r}
+library(tidyr)
+get_sentiments("bing")
+
+retinanetpaper_sentiment <- tidy_paper %>%
+  filter(title == "retinanet") %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(title, index = line %/% 2, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+retinanetpaper_sentiment
+```
+
+retinanet paper shows more negative expressions.
+
+
+```{r}
+library(ggplot2)
+ggplot(retinanetpaper_sentiment, aes(index, sentiment, fill = title)) +
+geom_bar(stat = "identity", show.legend = FALSE)
+```
+
+The ratinanet thesis ends with a lot of negative words appearing at the beginning and more positive words at the end.
+
+
+## 1-4. Barplot of Positive & Negative word  
+
+This time, I will look at the positive and negative words used in each paper.
+
+```{r}
+ssd_counting_words <- tidy_paper %>%
+  filter(title == "ssd") %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(word, sentiment, sort = TRUE)
+head(ssd_counting_words,20)
+```
+
+In SSD papers, the emotional words faster, object, better, and loss were used a lot.
+
+Object is a little difficult to see here as a negative word. Because the subject of the entire paper is object detection, object is used as a general noun, not as a negative word.
+
+
+
+If you look at the positive words separately, they are as follows.
+
+```{r}
+ssd_positive_words <- ssd_counting_words %>%
+  filter(n > 5) %>%
+  mutate(n = ifelse(sentiment == "positive", n, -n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  filter(sentiment == "positive")
+head(ssd_positive_words, 10)
+```
+
+The words faster, better, fast, top, accurate, improve are visible.
+
+It is presumed that there have been many expressions that say that the accuracy is improved faster than the previous technology.
+
+
+
+Next, look at negative words as follows.
+
+```{r}
+ssd_negative_words <- ssd_counting_words %>%
+  filter(n > 3) %>%
+  mutate(n = ifelse(sentiment == "positive", n, -n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  filter(sentiment == "negative")
+head(ssd_negative_words, 10)
+```
+
+Negative words are object and loss. However, both words are used as words such as object detection and loss function, and are assumed not to be negative words.
+This is thought to be the limit of the emotional dictionary.
+If analyzed in Korean, it will be more severe.
+
+
+Below is a visualized bar graph of the expressions of positive and negative.
+The expression of fast and improved catches my eyes.
+
+
+```{r}
+ssd_counting_words %>%
+  filter(n > 5) %>%
+  mutate(n = ifelse(sentiment == "positive", n, -n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment))+
+  geom_col() +
+  coord_flip()
+```
+
+
+Next, the sentiment lexicon applied earlier was applied to the mobilenet paper and analyzed.
+
+```{r}
+mobilenet_counting_words <- tidy_paper %>%
+  filter(title == "mobilenet") %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(word, sentiment, sort = TRUE)
+head(mobilenet_counting_words,20)
+```
+The words efficient, faster, latency, well, fine, object are visible.
+Different words from the previous SSD are the words efficient and latency. I know from prior learning that mobilenet is an efficient algorithm compared to ssd. 
+Latency is an expression that has a trade-off relationship with accuracy and is used in papers. The main feature of mobilenet, which has improved speed, but is less accurate, can be seen.
+
+
+
+Next, as before, the expressions of positive and negative were separately listed and visualized.
+
+```{r}
+mobilenet_positive_words <- mobilenet_counting_words %>%
+  filter(n > 2) %>%
+  mutate(n = ifelse(sentiment == "positive", n, -n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  filter(sentiment == "positive")
+head(mobilenet_positive_words, 10)
+```
+
+```{r}
+mobilenet_negative_words <- mobilenet_counting_words %>%
+  filter(n > 2) %>%
+  mutate(n = ifelse(sentiment == "positive", n, -n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  filter(sentiment == "negative")
+head(mobilenet_negative_words, 10)
+```
+
+
+```{r}
+mobilenet_counting_words %>%
+  filter(n > 3) %>%
+  mutate(n = ifelse(sentiment == "positive", n, -n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment))+
+  geom_col() +
+  coord_flip()
+```
+
+
+Through visualization through a bar plot, the characteristics of mobilenet can be seen at a glance in terms of faster, efficient, and latency.
+
+
+
+Next, I examined the expressions of positive and negative by combining retinanet with the emotional dictionary as previously analyzed.
+
+```{r}
+retinanet_counting_words <- tidy_paper %>%
+  filter(title == "retinanet") %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(word, sentiment, sort = TRUE)
+head(retinanet_counting_words,20)
+```
+The expression loss is number 119, and it appears considerably more than other words. Again, many objects appeared, and the word imbalance was also used a lot. Positive expressions are easy and faster.
+
+
+```{r}
+retinanet_counting_words %>%
+  filter(n > 5) %>%
+  mutate(n = ifelse(sentiment == "positive", n, -n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment))+
+  geom_col() +
+  coord_flip()
+```
+
+I guess retinanet has introduced a new loss function. I think there are many explanations for the new loss function. Therefore, it seems difficult to see the loss and object used here as a negative expression.
+
+
+# 1-5. Word Cloud
+
+
+I will visualize the positive and negative words for each paper using word cloud.
+
+```{r}
+library(reshape2)
+library(wordcloud)
+
+tidy_paper %>%
+  filter(title == "ssd") %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("red", "dark green"),
+                   max.words = 50)
+```
+
+In SSD paper, I can see a word cloud with the words object, faster, loss, accurate, and improvement.
+
+
+```{r}
+library(reshape2)
+library(wordcloud)
+
+tidy_paper %>%
+  filter(title == "mobilenet") %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("red", "dark green"),
+                   max.words = 50)
+```
+
+In mobilenet paper, I can see a word cloud where latency, object, efficient, faster, popular, decay, and dense words stand out.
+
+
+```{r}
+library(reshape2)
+library(wordcloud)
+
+tidy_paper %>%
+  filter(title == "retinanet") %>%
+  inner_join(get_sentiments("bing"), by = "word") %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("red", "dark green"),
+                   max.words = 50)
+```
+
+In retinanet paper, The words loss, object, imbalance, easy, effective, and faster appear to stand out.
+
+
+# 2. Tf-Idf Analysis
+
+In the previous analysis, I analyzed the frequency of positive and negative words.
+It may not be an important word just because it is frequent.
+So, this time, I would like to proceed with the tf-idf analysis to analyze words according to their importance in the paper.
+
+
+```{r}
+library(tidytext)
+tidy_paper <- raw_paper %>%
+  unnest_tokens(word, text) %>%
+  group_by(word) %>%
+  filter(n() > 10) %>%
+  ungroup()
+
+tidy_paper
+
+library(stopwords)
+stopword <- as_tibble(stopwords::stopwords("en"))
+stopword <- rename(stopword, word=value)
+tb <- anti_join(tidy_paper, stopword, by = 'word')
+
+stopword
+tb
+```
+
+
+First, the papers were loaded and the dataset was arranged using the unnest_token function and the stopword function. I can see that there are 5910 words left.
+
+
+```{r}
+tf_idf <- tb %>%
+count(title, word, sort = TRUE) %>%
+  bind_tf_idf(word, title, n)
+tf_idf
+```
+
+By using count and bind_tf_idf functions, I can see that the frequency, idf, and tf-idf are calculated.
+Some words with high frequency but low idf are visible. These are words such as loss, boxes, feature, ssd,1, and one.
+
+
+So, I'll add more such words to the stopword and look at them after excluding them.
+
+```{r}
+newstopwords <- tibble(word = c("boxes", "feature", "map","1","2","3","object","loss",'ssd','mobilenet',"retinanet","γ","fl","pt","box","voc2007", "ssd512", "ssd300"))
+tb <- anti_join(tb, newstopwords, by = "word")
+paper_tf_idf <- tb %>%
+  count(title, word, sort = TRUE) %>%
+  bind_tf_idf(word, title, n) %>%
+  arrange(desc(tf_idf))
+
+paper_tf_idf
+```
+
+I can see that tf_idf is listed in the order of the highest word. There are many words that could not be seen in the previous sentiment analysis.
+Perhaps it is because there are not many words used in thesis in the emotional dictionary.
+Then, I will visualize the main words.
+
+```{r}
+paper_tf_idf %>%
+  count(title, word, tf_idf, wt = n) %>%
+  ungroup() %>%
+  filter(tf_idf >= 0.0001, title %in% c("ssd","mobilenet","retinanet")) %>%
+  group_by(title) %>%
+  top_n(10, tf_idf) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>%
+  ggplot(aes(word, tf_idf, fill = title)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ title, scales = "free") +
+  ylab("tf-idf") +
+  coord_flip()
+```
+
+Looking at mobilenet, the words depthwise, convolutions, separable, and reduced appear. It seems that the main idea of this paper comes out rather than the sentiment analysis. 
+MobileNet is an algorithm that reduces the amount of computation compared to the existing SSD algorithm through depthwise separable convolution.
+Features of Mobilenet can be clearly identified through tf-idf.
+
+Next, it can be seen that focal loss, 2 stage, feature pyramid network, and resnet are the main contents in retinanet. 
+I am not sure because I do not have background knowledge about ratinanet, but it seems to be the content of improving the feature pyramid network with a new loss function called focal loss using resnet as a backbone.
+
+In the ssd algorithm, the words maps, default, cnn, aspect, scales, bounding, multiple and location are the main words. 
+The main contents of finding the location of an object appear in the picture with several default boxes with different aspect ratios.
+
+
+# 3. N-gram Analysis  
+
+Previously, I analyzed the importance of individual words. This time, I want to see the connections between words. Through N-gram and network visualization, I will try to understand the relationship between words in papers.
+
+
+## 3-1. make bigram
+
+Using the unnest_tokens function, I made a bigram with n = 2.
+Then, I made a function to visualize bigram.
+The function is as follows.
+
+```{r}
+library(ggplot2)
+library(igraph)
+library(ggraph)
+count_bigrams <- function(dataset) {
+  dataset %>%
+    unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+    separate(bigram, c("word1", "word2"), sep = " ") %>%
+    filter(!word1 %in% stop_words$word,
+           !word2 %in% stop_words$word) %>%
+    count(word1, word2, sort = TRUE)
+}
+
+
+visualize_bigrams <- function(bigrams) {
+  set.seed(1234)
+  a <- grid::arrow(type = "closed", length = unit(.15, "inches"))
+  bigrams %>%
+    graph_from_data_frame() %>%
+    ggraph(layout = "fr") +
+    geom_edge_link(aes(edge_alpha = n), show.legend = FALSE, arrow = a) +
+    geom_node_point(color = "lightblue", size = 5) +
+    geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+    theme_void()
+}
+
+```
+
+### SSD paper
+
+
+Using the count_bigrams function created earlier, I calculated the frequency of bigram in ssd paper.
+
+```{r}
+library(stringr)
+
+ssd_paper <- raw_paper %>%
+  filter(title == "ssd")
+ssd_bigrams <- ssd_paper %>%
+  count_bigrams()
+ssd_bigrams
+```
+The words default boxes, feature maps, aspect ratios, data augmentation, ground truth, and real time appear. 
+It is a feeling that the part where the meaning was not well understood in the previous analysis is slightly resolved.
+When the key words expressing this paper are expressed in bigram, they stand out more.
+
+
+Next, I will apply it to mobilenet.
+
+### Mobilenet paper
+
+```{r}
+library(stringr)
+
+mobilenet_paper <- raw_paper %>%
+  filter(title == "mobilenet")
+mobilenet_bigrams <- mobilenet_paper %>%
+  count_bigrams()
+mobilenet_bigrams
+```
+
+It can be seen that the words depthwise separable, separable, convolutions, depthwise convolution, computational cost, and resolution multiplier are often used.
+
+By using depthwise separable convolution in this paper, it can be seen that the multiplication operation is reduced and the computational cost is reduced.
+The core contents are more noticeable than when they are in one word.
+
+
+
+Next we will look at ratinanet.
+
+### Retinanet paper
+
+```{r}
+library(stringr)
+
+retinanet_paper <- raw_paper %>%
+  filter(title == "retinanet")
+retinanet_bigrams <- retinanet_paper %>%
+  count_bigrams()
+retinanet_bigrams
+```
+
+The words focal loss, stage detectors, class imbalance, cross entropy, box regression, classification subnet, and object locations were used a lot.
+
+A new loss function called focal loss is assumed to be the core content.
+
+## 3-2. visualize bigram network  
+
+This time, we will see bigrams by visualizing the network.
+
+### SSD paper
+
+
+```{r}
+ssd_bigrams <- ssd_bigrams %>%
+  filter(n > 3,
+       !str_detect(word1, "\\d"),
+       !str_detect(word2, "\\d"))
+ssd_bigrams
+```
+
+```{r}
+ssd_bigrams %>% visualize_bigrams()
+```
+
+The word feature is in the center, and the words associated with it are shown as maps, layers, and multiples.
+And on the right side, centering on the word box, there are the words bounding, default, shape, and truth.
+Visualized content seems insufficient to grasp the relationship.
+
+
+Next, I will visualize the mobilenet paper.
+
+```{r}
+mobilenet_bigrams <- mobilenet_bigrams %>%
+  filter(n > 2,
+       !str_detect(word1, "\\d"),
+       !str_detect(word2, "\\d"))
+mobilenet_bigrams
+```
+
+```{r}
+mobilenet_bigrams %>% visualize_bigrams()
+```
+
+The words depthwise, separable, and pointwise are shown around the convolution word.
+And the branches are connected by words such as neural, network, and layer.
+On the right side, you can see the channel, depth, resolution, and multiplier connected around the input.
+I can feel that there were contents explaining the differences from the existing neural net and convolution.
+
+
+
+Next, I will look at retinanet.
+
+```{r}
+retinanet_bigrams <- retinanet_bigrams %>%
+  filter(n > 2,
+       !str_detect(word1, "\\d"),
+       !str_detect(word2, "\\d"))
+retinanet_bigrams
+```
+
+```{r}
+retinanet_bigrams %>% visualize_bigrams()
+```
+
+
+Around the word object, the words detector, detection, classification, and location are visible. 
+On the left, around the words examples, the words easy, hard, classified, and negative are visible. 
+On the left side, the words function, entropy, ce, fl, and focal are connected around the word loss.
+Words to describe the retinanet algorithm are shown, and each content can be seen a little lumped together.
+
+
+# 4. Topic Modeling  
+
+I will examine whether the three papers are divided well through LDA, which can find latent topics, and observe whether they are divided into other latent topics through LDA tuning process.
+
+## 4-1. k=3, LDA modeling   
+
+The current dataset consists of three papers: ssd, mobilenet, and retinanet. Let's check whether it is well divided into three topics with the LDA modeling.
+
+```{r}
+library(tm)
+library(stringr)
+
+word_counts <- tidy_paper %>%
+  anti_join(stop_words) %>%
+  count(title, word, sort = TRUE) %>%
+  ungroup()
+
+word_counts
+```
+
+First, the tidy data was removed using the anti_join function.
+
+Then, it was changed to DocumentTermMatrix type by using cast_dtm function. The result is as follows.
+
+```{r}
+paper_dtm <- word_counts %>%
+  cast_dtm(title, word, n)
+
+paper_dtm
+```
+
+
+LDA modeling with k=3 was performed with DocumentTermMatrix and stored in paper_lda.
+
+
+```{r}
+library(topicmodels)
+paper_lda <- LDA(paper_dtm, k = 3, control = list(seed = 1234))
+paper_lda
+
+```
+
+
+LDA results were listed as words and beta values using the tidy function.
+The result is as follows.
+
+
+```{r}
+paper_topics <- tidy(paper_lda, matrix = "beta")
+paper_topics
+
+newstopwords <- tibble(term = c("1","2","3", "γ"))
+paper_topics <- anti_join(paper_topics, newstopwords, by = "term")
+```
+
+### 4-2. visualize top 10 word
+
+Let's visualize the top 10 words of the LDA modeling result.
+
+First, I listed the top 10 words by topic.
+
+```{r}
+top_terms <- paper_topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms
+```
+ 
+Next, the top 10 words were visualized as bar graphs.
+
+
+```{r}
+library(ggplot2)
+
+top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+```
+
+
+Looking at the top 10 words, we can guess that topic1 is retinanet, topic2 is mobilenet, and topic3 is ssd. 
+In topic 1, words such as loss, focal, stage, and retinanet are the main words of the retinanet paper. 
+In topic2, words such as depthwise, mobilenet, convolution, multiplier, and separable are words that appeared in mobilenet papers.
+In topic3, words such as boxes, default, feature, ssd, map, cnn, etc. are words that appeared in the ssd paper.
+It seems like a natural result, but through LDA modeling, you can see that key words are gathered well by topic in a concise manner.
+
+
+### 4-3. LDA tunning findtopicsnumber
+
+This time, if there is a hidden topic, I will use the findtopicsnumber function to find the optimal k.
+
+```{r}
+library("ldatuning")
+library("topicmodels")
+result <- FindTopicsNumber(paper_dtm,topics = seq(from = 2, to = 10, by = 1),
+                           metrics = c("Griffiths2004" , "CaoJuan2009", "Arun2010", "Deveaud2014"),
+                           method = "Gibbs",
+                           control = list(seed = 12345),mc.cores = 2L,verbose = TRUE)
+
+result
+```
+
+```{r}
+FindTopicsNumber_plot(result)
+```
+
+
+From the above graph result, k=6 seems the most appropriate. I am curious about what topics are hiding.
+
+So, let's run LDA once again with k=6.
+
+## 4-4. visualize tuning result topic word
+
+
+```{r}
+library(topicmodels)
+paper_lda6 <- LDA(paper_dtm, k = 6, control = list(seed = 1234))
+paper_lda6
+
+```
+
+
+The LDA was again performed with k=6 obtained from the LDA tuning result.
+
+```{r}
+paper_topics6 <- tidy(paper_lda6, matrix = "beta")
+paper_topics6
+
+newstopwords <- tibble(term = c("1","2","3", "γ"))
+paper_topics6 <- anti_join(paper_topics6, newstopwords, by = "term")
+```
+
+
+```{r}
+top_terms6 <- paper_topics6 %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms6
+```
+
+The results were visualized as a bar graph.
+
+
+```{r}
+library(ggplot2)
+
+top_terms6 %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+```
+
+As a result, it is estimated that 1 and 6 are retinanet, 2 and 3 are ssd, and 4 and 5 are mobilenet papers. I don't understand why it was divided into six. 
+I think the result of modeling with k=3 is more valid.
+It is always necessary to read it directly with tuning.
+
+# 5. Conclusion
+
+Text mining was performed with three papers related to image detection.
+First of all, it was good to be able to see the characteristic parts of the thesis in sentiment analysis. It can be seen in words such as "fast" and "efficient". However, due to the limitation of the emotional dictionary, words such as "object" and "loss", which are not negative words, were detected as negative words. The flow of emotion does not seem to be very important when searching for papers.
+Next, it was very effective to check important words in documents through tf-idf other than frequent words.
+It can be seen that the main contents of exactly the core thesis were captured.
+Next, I tried to heat up the words connected through the N-gram. When viewed as a connected word, more important contexts came in. Personally, when analyzing the paper, tf-idf and n-gram felt the most powerful.
+Next, LDA modeling was performed, and through this, I could see that almost key words were derived.
+With raw data, not the data contained in R, I did the whole text mining that I learned during this semester once. 
+First of all, text mining can be used as a powerful tool for studying.
+As it expands to larger data, it is expected that it will be of great help if it is applied to actual work.
+
+
