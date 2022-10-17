@@ -5,3 +5,4 @@
 3. Time Series Analysis with Disney Stock Price
 4. Solar Power Prediction
 5. Paper Topic Analysis using TextMining
+6. Clustering Analysis using MedicalData
