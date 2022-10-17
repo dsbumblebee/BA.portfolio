@@ -1,0 +1,529 @@
+---
+title: "The Final Report(Medical Checkup Data Clustring and Classification"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+# 0. Problem Understanding
+
+Company A is trying to develop a digital care platform. The main function of this device is to monitor personal lifestyle diseases. Major customers are patients with high-risk and complex chronic diseases.
+Health examination data of 1 million people will be used as training data for clustering and classification.
+Based on this, it is intended to identify major customers with complex chronic diseases and to suggest appropriate health management measures according to the disease.
+
+## Content 
+  1. Data import and Explanation  
+  2. Data preprocessing    
+    2.1 Removal of missing value    
+    2.2 Sampling data    
+    2.3 Removal of Outliers    
+  3. Data EDA    
+  4. Data setup  
+  5. Clustering    
+  6. Classification Modeling      
+  7. Evaluation    
+  8. Conclusion    
+
+# 1. Data import and Explanation
+
+```{r}
+# import data
+setwd("~/Documents/Rstudy/AP/finalreport")
+data <- read.csv("NHIS_OPEN_GJ_2016.csv")
+```
+
+Using the read.csv function, the health examination data of 1 million people were imported.
+
+```{r}
+# Explanation 
+dim(data)
+colnames(data)
+str(data)
+```
+
+Data dimension is 1 million rows and 27 columns.  
+Then, I will look at the 27 variables.  
+- “yr” : Year of medical checkup, integer, several values are filled with 2016.  
+- “no” : Number of examination people, integer.  
+- “gender” : Gender of examination people, integer, male is 1, female is 2.  
+- “age” : Age of examination people, it is mapped from 1 to 18 by age 5 units. 0 to 4 years old is group1. and Age 85 and over are in Group18. It’s a integer.  
+- “region” : The resident area of the examination people is mapped with a two-digit code based on the city and province. It’s a integer.  
+- “height” : The height of the examination people is in units of 5cm. integer.  
+- “weight” : The weight of the examination people is in units of 5kg. integer.  
+- “weist” : Examiner’s waist circumference. integer.  
+- “eye_L” : Left eye vision of the examination people. numeric.  
+- “eye_R” : Right eye vision of the examination people. numeric.   
+- “ear_L” : Left hearing of the examination people. Normal is 1, Abnormal is 2.  
+- “ear_R” : Right hearing of the examination people. Normal is 1, Abnormal is 2.  
+- “bp_H” : The highest blood pressure of the examination people.  
+- “bp_L” : The lowest blood pressure of the examination people.  
+- “bs” : Blood sugar before meal of the examination people.  
+- “tc” : Total cholesterol in the examination people’s serum. The normal range is between 150 and 250.   
+- “t” : Triglycerides. The normal range is between 30 and 135.  
+- “hdl” : high density lipoprotein. The role of removing bad cholesterol accumulated on the walls of blood vessels. The normal range is between 30 and 65.  
+- “ldl” : low density lipoprotein. These components that cause arteriosclerosis or various diseases by accumulating on the walls of blood vessels if excessive. Hyperldlemia in case of over 170.  
+- “hemo” : blood oxygen carrier.  
+- “urine” : Protein in urine. It is marked from 1 to 6 depending on the degree.  
+- “crea” : Serum creatine concentration, which is increased by renal dysfunction. The normal range is between 0.8 and 1.7.  
+- “AST” : Figures indicating liver function. In addition to the liver, it is also present in the heart, kidneys, brain muscles, etc. Concentration increases when cells are damaged. The normal range is between 0 and 40.  
+- “ALT” : Figures indicating liver function. It mainly exists in hepatocytes. Concentration increases when cells are damaged. The normal range is between 0 and 40.  
+- “GTP” : Figures indicating liver function. An enzyme present in the gallbladder duct and increases in the blood when bile excretion disorders and hepatocyte disorders occur.  
+- “smoke” : Indicates whether the examinee smokes. “Do not smoke” is 1. “Quit smoking” is 2. “Smoking” is 3.  
+- “drink” : Indicates whether the examinee is drinking alcohol. “Do not drink” is 1. “Drinking” is 2.  
+
+```{r}
+# summary data 
+summary(data)
+```
+
+Missing values exist for most variables. In particular, the drink variable is entirely missing. 
+After performing the data preprocessing, I have to look at the data.
+
+# 2. Data preprocessing
+
+## 2.1 Removal of missing values
+
+I will find and remove missing values.
+
+```{r}
+# remove drink value
+data <- subset(data, select=-drink)
+
+# remove missing value
+sum(is.na(data))
+data <- na.omit(data)
+dim(data)
+summary(data)
+```
+
+The number of missing values is 11446.
+Because the data is sufficient, I excluded missing values. Excluding the missing values, 991038 data remained. 
+
+## 2.2 Sampling data
+
+In order to quickly understand the distribution pattern, I will sample only 10000 data. And I will select only the data needed for analysis. 
+
+```{r}
+# sampling data
+set.seed(123)
+row <- sample(nrow(data), 10000, replace=FALSE)
+data2 <- data[row, ]
+dim(data2)
+
+# data selection
+data2 <- data2[,c("gender","age","height","weight","weist","bp_H","bp_L","bs","tc","t","hdl","ldl","hemo","urine", "crea","AST","ALT","GTP","smoke")]
+
+dim(data2)
+summary(data2)
+```
+
+I can see that the sampling and data selection are well done.  
+The data is 10000 rows and 19 variables. The summary provides a brief overview of the distribution of the data. It is worth paying attention to the max value. Especially the weist and GTP value are very strange. I have to go through the process of searching for and removing outliers.
+
+## 2.3 Removal of Outliers  
+
+I want to remove outliers. In general, extreme values are outside of 1.5 times IQR. I want to make a more conservative decision. I only want very extreme values to be removed. So I made a function that excludes data that are out of 3 times IQR.  
+
+
+```{r}
+# outlier detection function
+## detecting indices of values exceeding 3 * IQR 
+outlier_detection <-function(df, variables){
+  outlier <- list()
+  for(variable in variables){
+    Q3 <- quantile(df[,variable], 0.75, name = FALSE)
+    Q1 <- quantile(df[,variable], 0.25, name = FALSE)
+    IQR <- Q3-Q1
+    IQR <- as.numeric(IQR)
+    outlier_step <- 3*IQR
+    
+    index <-rownames(df[(df[,variable] > Q3+outlier_step)|(df[,variable] < Q1-outlier_step),])
+    
+    outlier <- append(outlier , index)
+    outlier <- as.numeric(outlier)
+  }
+  return(outlier)
+} 
+
+outlier_index <- outlier_detection(data2, c("height","weight","weist","bp_H",
+                                                    "bp_L","bs","tc","t","hdl",
+                                                    "ldl","hemo","crea","AST","ALT","GTP"))
+outlier_index <- unique(outlier_index)
+length(outlier_index)
+```
+
+```{r}
+# outlier rows 
+outlier_index <- as.character(outlier_index)
+head(data2[outlier_index,]) 
+```
+
+```{r}
+# rownames of data2
+sdrn <- rownames(data2)
+
+# examption of the outlier row
+ex_index <- setdiff(sdrn, outlier_index)
+
+# drop the outlier rows
+data2 <- data2[ex_index,]
+```
+
+
+```{r}
+# check the preparation data
+summary(data2)
+names(data2)
+dim(data2)
+```
+
+Using the outlier detection function, I found outliers rows. The number of rows is 1154. I set a very conservative extreme value criterion (3 * IQR). Nevertheless, about 12% of the data was lost. After removing all of the extreme outlier, 8846 rows of data remained. Compared to the previous data, I can see that extreme values have disappeared.  
+Now I want to look at the data in detail.
+
+# 3. EDA data 
+
+## 3.1 Gender 
+```{r}
+print(table(data2$gender))
+barplot(table(data2$gender), horiz = T)
+```
+Males are 4466. Females are 4380. The proportion of men is a little higher than that of female.
+
+## 3.2 Age 
+
+```{r}
+print(table(data2$age))
+barplot(table(data2$age), ylim=c(0,1500))
+```
+
+The age range of examination data is from 20 to 85 over years old. The distribution of the data is similar to a normal distribution. The average age seems to be around 50. 
+
+## 3.3 Height
+
+```{r}
+data2$gender <- as.factor(data2$gender)
+library(vioplot)
+
+par(mfrow = c(1,3))
+boxplot(data2$height, main='boxplot of height', xlab='', ylab='height')
+boxplot(data2$height~data2$gender,main='boxplot of height', xlab='gender', ylab='height')
+vioplot(data2$height~data2$gender,main='violinplot of height', xlab='gender', ylab='height')
+
+```
+
+The distribution of height is similar to a normal distribution. 
+The median of men is about 171, the median of women is about 156. I don't see anything special.
+
+## 3.4 weight 
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$weight, main='boxplot of weight', xlab='', ylab='weight')
+boxplot(data2$weight~data2$gender,main='boxplot of weight', xlab='gender', ylab='weight')
+vioplot(data2$weight~data2$gender,main='violinplot of weight', xlab='gender', ylab='weight')
+```
+
+It is a distribution that is skewed toward the lighter weight. Males above 95 and females above 78 are considered outliers. Obesity can also be considered to be related to chronic diseases. 
+
+## 3.5 Waist 
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$weist, main='boxplot of weist', xlab='', ylab='weist')
+boxplot(data2$weist~data2$gender,main='boxplot of weist', xlab='gender', ylab='weist')
+vioplot(data2$weist~data2$gender,main='violinplot of weist', xlab='gender', ylab='weist')
+```
+
+The distribution of waist variable slightly skewed to the left Minimum value is about 54. Maximum value is about 121. Median value is 80. As expected, men have a larger waist than women. Median value of men is about 83, Median value of women is about 77. Women’s waist data is more widely distributed than men’s waist data. 
+
+## 3.6 bp_H
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$bp_H, main='boxplot of bp_H', xlab='', ylab='bp_H')
+boxplot(data2$bp_H~data2$gender,main='boxplot of bp_H', xlab='gender', ylab='bp_H')
+vioplot(data2$bp_H~data2$gender,main='violinplot of bp_H', xlab='gender', ylab='bp_H')
+```
+
+The distribution of bp_H variable slightly skewed to the left. Minimum value is 74. Maximum value is 184. Median value is 120.  In general, below 90 is hypotension. If it is over 180, it is acute hypertension. Men’s median value of bp_H is a little higher than women’s bp_H. Women’s bp_H values are more widely distributed than men’s bp_H values. 
+
+## 3.7 bp_L
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$bp_L, main='boxplot of bp_L', xlab='', ylab='bp_L')
+boxplot(data2$bp_L~data2$gender,main='boxplot of bp_L', xlab='gender', ylab='bp_L')
+vioplot(data2$bp_L~data2$gender,main='violinplot of bp_L', xlab='gender', ylab='bp_L')
+```
+
+Minimum value is about 46. Maximum value is 114. Median value is 75. The distribution of bp_L is narrower than bp_H. In general, below 60 is hypotension. It is observed that many people are outside the normal range. 
+
+## 3.8 bs
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$bs, main='boxplot of bs', xlab='', ylab='bs')
+boxplot(data2$bs~data2$gender,main='boxplot of bs', xlab='gender', ylab='bs')
+vioplot(data2$bs~data2$gender,main='violinplot of bs', xlab='gender', ylab='bs')
+```
+
+Minimum value is 39. Maximum value is 156. Median value is about 93. The distribution by gender is similar. Often, the blood sugar of a normal person is between 70 and 100. If blood suger is over 126, it can be considered a diabetic patient. It is observed that some people are outside the normal range. 
+
+## 3.9 tc 
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$tc, main='boxplot of tc', xlab='', ylab='tc')
+boxplot(data2$tc~data2$gender,main='boxplot of tc', xlab='gender', ylab='tc')
+vioplot(data2$tc~data2$gender,main='violinplot of tc', xlab='gender', ylab='tc')
+```
+
+Minimum value is 75. Maximum value is 359. Median value is 193.
+The distribution by gender is similar. The normal range is between 150 and 250. It is observed that many people are outside the normal range. 
+
+## 3.10 t
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$t, main='boxplot of t', xlab='', ylab='t')
+boxplot(data2$t~data2$gender,main='boxplot of t', xlab='gender', ylab='t')
+vioplot(data2$t~data2$gender,main='violinplot of t', xlab='gender', ylab='t')
+```
+
+Minimum value is 10. Maximum value is 421. Median is 102. The distribution of triglyceride skewed to the left. Men’s triglyceride is higher than women’s triglyceride. The range of a normal person is between 30 and 135. A triglyceride level of 500 of higher is an ultra-high risk group. In general, high triglyceride levels are suspected of coronary artery disease. 
+
+# 3.11 hdl 
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$hdl, main='boxplot of hdl', xlab='', ylab='hdl')
+boxplot(data2$hdl~data2$gender,main='boxplot of hdl', xlab='gender', ylab='hdl')
+vioplot(data2$hdl~data2$gender,main='violinplot of hdl', xlab='gender', ylab='hdl')
+```
+
+Minimum value is about 22. Maximum value is about 125. Median value is 55. Women’s hdl is higher than men’s hdl. The distribution of men skewed to more left than women’s distribution. The range of normal person is between 30 and 65. In general, higher hdl reduces the risk of coronary artery disease, while lower hdl increases the risk of heart disease. 
+
+## 3.12 ldl
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$ldl, main='boxplot of ldl', xlab='', ylab='ldl')
+boxplot(data2$ldl~data2$gender,main='boxplot of ldl', xlab='gender', ylab='ldl')
+vioplot(data2$ldl~data2$gender,main='violinplot of ldl', xlab='gender', ylab='ldl')
+```
+
+Minimum value is 3. Maximum value is 268. Median value is 113. The distribution by gender is similar.
+In general, if the ldl is over 170, it is considered high ldl patients. It is observed that many people are outside the normal range. 
+
+## 3.13 hemo 
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$hemo, main='boxplot of hemo', xlab='', ylab='hemo')
+boxplot(data2$hemo~data2$gender,main='boxplot of hemo', xlab='gender', ylab='hemo')
+vioplot(data2$hemo~data2$gender,main='violinplot of hemo', xlab='gender', ylab='hemo')
+```
+
+The minimum value is about 6. The maximum value is 19. The median of hemo data is 14.1. In general, the normal range is 13 to 18 for men and 12 to 16 for women. It is observed that some people are outside the normal range. 
+
+## 3.14 urine
+
+```{r}
+print(table(data2$urine))
+barplot(table(data2$urine))
+```
+This data is quite skewed at about 94% of normal people. 
+
+## 3.15 crea
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$crea, main='boxplot of crea', xlab='', ylab='crea')
+boxplot(data2$crea~data2$gender,main='boxplot of crea', xlab='gender', ylab='crea')
+vioplot(data2$crea~data2$gender,main='violinplot of crea', xlab='gender', ylab='crea')
+```
+The minimum value is 0.1. The maximum value is 1.9. The median of crea data is about 0.8. Women are generally lower than men. In general, the normal range is between 0.8 to 1.7. If crea level is high, heart and kidney disease are suspected.
+
+## 3.16 AST
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$AST, main='boxplot of AST', xlab='', ylab='AST')
+boxplot(data2$AST~data2$gender,main='boxplot of AST', xlab='gender', ylab='AST')
+vioplot(data2$AST~data2$gender,main='violinplot of AST', xlab='gender', ylab='AST')
+```
+
+The minimum value is about 1. The maximum value is about 57. The median of this data is 24. The normal range of this variable is between 0 to 40. If AST level is higher, liver, heart, kidney, brain and muscle diseases are suspected. It is observed that some people are outside the normal range. 
+
+## 3.17 ALT 
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$ALT, main='boxplot of ALT', xlab='', ylab='ALT')
+boxplot(data2$ALT~data2$gender,main='boxplot of ALT', xlab='gender', ylab='ALT')
+vioplot(data2$ALT~data2$gender,main='violinplot of ALT', xlab='gender', ylab='ALT')
+```
+
+The minimum value is about 1. The maximum value is about 78. The median of this data is 19. The normal range is between 0 to 40. If this value is higher than normal range, liver diseases are suspected.  It is observed that some people are outside the normal range. 
+
+## 3.18 GTP 
+
+```{r}
+par(mfrow = c(1,3))
+boxplot(data2$GTP, main='boxplot of GTP', xlab='', ylab='GTP')
+boxplot(data2$GTP~data2$gender,main='boxplot of GTP', xlab='gender', ylab='GTP')
+vioplot(data2$GTP~data2$gender,main='violinplot of GTP', xlab='gender', ylab='GTP')
+```
+
+The minimum value is about 4. The maximum value is about 107. The median of this data is 22. The normal range is 11 to 63 for men and 8 to 35 for women. This is a lot of skewed data. 
+
+## 3.19 smoke
+
+```{r}
+print(table(data2$smoke))
+barplot(table(data2$smoke))
+```
+
+The proportion of non-smokers is about 63%, the proportion of smokers is about 20%, and others have smoked in the past, but now do not smoke.
+
+## 3.20 Pair plot of variables related to complex chronic disease
+
+To analyze the relationship of variables related to complex chronic disease, I create a pair plot.
+```{r}
+## pairplot of some variables 
+## make bmi variable 
+data3 <- data2 
+data3$bmi <- data3$weight / (data3$height**2)
+plot(data3[,c("weist","bp_H","bs","tc","t","hdl","ldl","bmi")])
+```
+```{r}
+# correlation of the data
+cor(data3[,c("weist","bp_H","bp_L","bs","tc","t","hdl","ldl","hemo","AST","ALT","GTP","bmi")])
+```
+
+The variables with strongest correlation were tc and ldl. In the scatter plot, I can observe a clear upward-right straight line. Its correlation coefficient is about 0.9. And I can observe correalation between weist and bmi. Its correlation coefficient is about 0.79. "bmi" variable is your weight divided by the square of your height. And I can observe correlation between AST and ALT. Its correlation coefficient is about 0.68. And I can observe correlation between bp_H and bp_L. Its correlation coefficient is about 0.72. Data with high correlation should be considered to be excluded when modeling.
+ 
+# 4. Data setup
+
+```{r}
+# change categorical data to dummy data
+data3$smoke <- as.factor(data3$smoke)
+library(fastDummies)
+dummy_data <- fastDummies::dummy_cols(data3, remove_first_dummy = TRUE)
+head(dummy_data)
+```
+In order to use the data in machine learning, the category variables must be converted to dummy form. 
+The categorical variables were changed to dummy variables using the fastDummies function. 
+
+```{r}
+# select variables 
+data4 <- subset(dummy_data, select= -c(gender,height,weight, bp_L, tc, urine, AST, smoke))
+
+# make new variable 
+data4$wbmi <- data4$bmi * data4$weist
+
+# drop bmi
+data4 <- subset(data4, select=-c(bmi,weist))
+
+head(data4)
+```
+
+Since ldl and tc showed a strong correlation, I choose ldl variable. 
+Since AST and ALT showed a strong correlation, I choose ALT variable. 
+Since bmi and weist showed a strong correlation, A new variable wbmi was created by multiplying bmi and waist. All the height, weight, and bmi variables related to this variable were excluded. The urine variable was excluded because it was not considered to be related to multiple chronic diseases. I left the dummy variables and removed the gender and smoke variables.
+
+```{r}
+# minmax scaling data
+minmaxscaled_data4 <- sapply(data4, function(x){(x-min(x))/(max(x)-min(x))})
+head(minmaxscaled_data4)
+summary(minmaxscaled_data4)
+```
+
+Data normalization is required before clustering. Normalization was done using minmax scaling. You can see that all the data comes in between 0 and 1.
+
+# 5. Clustering 
+
+Since most of the variables are continuous variables and the shape of the distribution is skewed, clustering is performed using the k-medoids methodology. k-medoids are less sensitive to outliers than kmeans. However, there is a shortcoming with a larger amount of computation. It can be implemented with the cluster library pam function. I need to set an appropriate k value. In this analysis, the purpose of this analysis is to find target customers with complex chronic diseases, so the group is divided into several groups. I set k to 10. 
+
+```{r}
+library(cluster)
+set.seed(123)
+pam.result <- pam(minmaxscaled_data4, 10)
+table(pam.result$clustering)
+pam.result$objective
+pam.result$clusinfo
+pam.result$medoids
+```
+
+You can see the clustering. Among the complex chronic diseases, we want to focus on hypertension, diabetes, and obesity. 
+First, focus on high blood pressure. The group with the highest blood pressure was group 3. A group 4 had second highest blood pressure. I think we should focus more on group 4. This is because the age group is lower than in group 3. 
+Second, I will look at diabetes. It can be seen that groups 5 and 6 have the highest bs. 
+Third, I will look at obesity. It can be seen that the wbmi index of groups 4 and 6 are high.
+
+Therefore, I need to focus most on groups 4 and 6. Next, focus on groups 3 and 5.
+
+# 6. Modeling
+
+Groups to focus on were selected through clustering. 
+I would like to examine whether groups created through clustering can be predicted with a logistic regression model.  
+
+```{r}
+# set up data
+str(minmaxscaled_data4)
+classif.data4<- as.data.frame(minmaxscaled_data4)
+head(classif.data4)
+classif.data4$label <- pam.result$clustering
+head(classif.data4)
+```
+
+```{r}
+# split dataset
+set.seed(123)
+train_ind <- sample(nrow(classif.data4), size = floor(0.75*nrow(classif.data4)))
+trainset <- classif.data4[train_ind,]
+testset <- classif.data4[-train_ind,]
+dim(trainset)
+dim(testset)
+```
+
+```{r}
+# split x, y
+train_X <- subset(trainset, select = -label)
+train_y <- trainset[,'label']
+test_X <- subset(testset, select = -label)
+test_y <- testset[,'label']
+str(train_X)
+```
+
+```{r}
+# logistic regression
+library(nnet)
+logistic.fit <- multinom(label~. , data=trainset)
+summary(logistic.fit)
+confusion_lr <- table(predict(logistic.fit, test_X), test_y)
+```
+
+Logistic Regression Modeling was performed using the nnet library. The train set is divided by 75% and the test set is divided by 25%. The dependent variable is “label”. Except for “label”, all variables are independent variables. The independent and dependent variables were saved in train.X, train.y, test.X, test.y, respectively. 
+
+# 7. Evaluation
+
+```{r}
+#confusionMatrix
+#install.packages("caret")
+library(caret)
+confusionMatrix(confusion_lr)
+```
+
+The accuracy was calculated using the confusionmatrix function in the caret library.
+The accuracy of test data is 99.1%. 
+
+# 8. Conclusion
+
+In order to solve Company A's problem with health examination data, data preprocessing, EDA, clustering, and classification model generation were performed.
+
+It is necessary to select people who are suspected of diabetes, hypertension, and obesity as major customers. In this analysis, it corresponds to the 3, 4, 5, and 6 groups. Some of these may already be aware of the health abnormalities. Of these people, it would be nice to focus your marketing on those who want to recover their health. 
+
+I propose a health care application that can help these groups recover their health. This app uses mobile devices to provide information that encourages them to live a life that can continuously recover their health. For example, it could provide a healthy diet suitable for diseases, or a service that encourages continued exercise. 
+
+Finally, through this Analytic Programming course, I was able to perform the process from the beginning to the end of the analysis. I found it very important to define the problem. The process of looking at the data and preprocessing took a lot of time. The code using machine learning was very simple. It is thought that you should know the characteristics of machine learning methodologies and use them for appropriate data. I will continue to study and become a good analyst. Thank you.
+
+
